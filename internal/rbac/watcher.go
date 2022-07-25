@@ -3,7 +3,6 @@ package rbac
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	rbac "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -14,18 +13,34 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// TODO: Open Question: Do we need to watch the ClusterRoles and Roles that are applied to the SA via a binding with informers in the case that the roles are modified?
+// - For now keep the scope to the bindings and then see about adding the more granular functionality
+
+// RBACWatcher is a struct meant for watching RBAC changes
+// and updating a cache of RBAC permissions that can be used
+// when handling proxy requests
 type RBACWatcher struct {
-	ServiceAccountName   string
-	ClusterPermissions   Permissions
+	// The name of the ServiceAccount to watch RBAC for
+	ServiceAccountName string
+	// The cluster level permissions the ServiceAccount has
+	ClusterPermissions Permissions
+	// The namespace level permissions the ServiceAccount has
 	NamespacePermissions NamespacedPermissions
-	cache                crcache.Cache
-	cli                  client.Client
+	// The controller-runtime cache used to create and manage informers
+	cache crcache.Cache
+	// A controller-runtime client for the RBACWatcher to make any API requests it may need to make
+	cli client.Client
 }
 
+// Permissions is a mapping of resources to a map of permissions
+// For example map["pods"] --> map{"get":0, "list":0, "watch":0}
 type Permissions map[string]map[string]interface{}
 
+// NamespacedPermissions is a mapping of namespaces to Permissions
+// For example map["default"] --> Permissions
 type NamespacedPermissions map[string]Permissions
 
+// NewRBACWatcher creates a new RBACWatcher for the given ServiceAccount name
 func NewRBACWatcher(sa string) *RBACWatcher {
 	return &RBACWatcher{
 		ServiceAccountName:   sa,
@@ -34,6 +49,9 @@ func NewRBACWatcher(sa string) *RBACWatcher {
 	}
 }
 
+// Initialize creates and configures the controller-runtime cache and informers
+// that are used under the hood to keep the ClusterPermissions and NamespacePermissions
+// up to date.
 func (w *RBACWatcher) Initialize(ctx context.Context, cfg *rest.Config) error {
 	var err error
 	opts := crcache.Options{}
@@ -61,11 +79,13 @@ func (w *RBACWatcher) Initialize(ctx context.Context, cfg *rest.Config) error {
 	return nil
 }
 
+// Start starts the RBACWatcher. This function is blocking.
 func (w *RBACWatcher) Start(ctx context.Context) error {
 	return w.cache.Start(ctx)
 }
 
-// TODO: Finish this handler
+// clusterRoleBindingHandler is a helper function for creating the ResourceEventHandlerFuncs
+// that is used by the ClusterRoleBinding informer
 func (w *RBACWatcher) clusterRoleBindingHandler() cache.ResourceEventHandlerFuncs {
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
@@ -127,32 +147,8 @@ func (w *RBACWatcher) clusterRoleBindingHandler() cache.ResourceEventHandlerFunc
 	}
 }
 
-func getPermissionsForClusterRoleBinding(cli client.Client, crb *rbac.ClusterRoleBinding) Permissions {
-	perms := Permissions{}
-	cr := &rbac.ClusterRole{}
-	err := cli.Get(context.Background(), client.ObjectKey{Name: crb.RoleRef.Name}, cr)
-	if err != nil {
-		klog.V(0).Infof(fmt.Sprintf("encountered an error attempting to get ClusterRole with name: %s", &crb.RoleRef.Name))
-	}
-	if len(cr.Rules) > 0 {
-		klog.V(0).Infof(fmt.Sprintf("processing ClusterRole %s", cr.Name))
-
-		for _, rule := range cr.Rules {
-			verbsMap := make(map[string]interface{})
-			for _, verb := range rule.Verbs {
-				verbsMap[verb] = 0
-			}
-			for _, res := range rule.Resources {
-				klog.V(0).Infof(fmt.Sprintf("ClusterRole `%s` sets resource `%s` with verbs `%s`", cr.Name, res, strings.Join(rule.Verbs, ",")))
-				perms[res] = verbsMap
-			}
-		}
-	}
-
-	klog.V(0).Infof("PERMS -- ", perms)
-	return perms
-}
-
+// addClusterPerms is a helper function to add permissions
+// to the ClusterPermissions field.
 func (w *RBACWatcher) addClusterPerms(perms Permissions) {
 	for key, value := range perms {
 		if _, ok := w.ClusterPermissions[key]; ok {
@@ -167,6 +163,8 @@ func (w *RBACWatcher) addClusterPerms(perms Permissions) {
 	}
 }
 
+// deleteClusterPerms is a helper function to delete permissions
+// from the ClusterPermissions field
 func (w *RBACWatcher) deleteClusterPerms(perms Permissions) {
 	for key, value := range perms {
 		if _, ok := w.ClusterPermissions[key]; ok {
@@ -177,9 +175,8 @@ func (w *RBACWatcher) deleteClusterPerms(perms Permissions) {
 	}
 }
 
-// TODO: Open Question: Do we need to watch the ClusterRoles and Roles that are applied to the SA via a binding with informers in the case that the roles are modified?
-// - For now keep the scope to the bindings and then see about adding the more granular functionality
-
+// roleBindingHandler is a helper function for creating the ResourceEventHandlerFuncs
+// that is used by the RoleBinding informer
 func (w *RBACWatcher) roleBindingHandler() cache.ResourceEventHandlerFuncs {
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
@@ -241,32 +238,8 @@ func (w *RBACWatcher) roleBindingHandler() cache.ResourceEventHandlerFuncs {
 	}
 }
 
-func getPermissionsForRoleBinding(cli client.Client, rb *rbac.RoleBinding) Permissions {
-	perms := Permissions{}
-	role := &rbac.Role{}
-	err := cli.Get(context.Background(), client.ObjectKey{Name: rb.RoleRef.Name, Namespace: rb.Namespace}, role)
-	if err != nil {
-		klog.V(0).Infof(fmt.Sprintf("encountered an error attempting to get Role with name: %s", rb.RoleRef.Name))
-		return nil
-	}
-	if len(role.Rules) > 0 {
-		klog.V(0).Infof(fmt.Sprintf("processing Role %s", role.Name))
-		for _, rule := range role.Rules {
-			verbsMap := make(map[string]interface{})
-			for _, verb := range rule.Verbs {
-				verbsMap[verb] = 0
-			}
-			for _, res := range rule.Resources {
-				klog.V(0).Infof(fmt.Sprintf("Role `%s` sets resource `%s` with verbs `%s`", role.Name, res, strings.Join(rule.Verbs, ",")))
-				perms[res] = verbsMap
-			}
-		}
-	}
-
-	klog.V(0).Infof("PERMS -- ", perms)
-	return perms
-}
-
+// addNamespacedPerms is a helper function to add permissions
+// to the NamespacePermissions field.
 func (w *RBACWatcher) addNamespacedPerms(namespace string, perms Permissions) {
 	if _, ok := w.NamespacePermissions[namespace]; ok {
 		for key, value := range perms {
@@ -285,6 +258,8 @@ func (w *RBACWatcher) addNamespacedPerms(namespace string, perms Permissions) {
 	}
 }
 
+// deleteNamespacedPerms is a helper function to delete permissions
+// from the NamespacePermissions field.
 func (w *RBACWatcher) deleteNamespacedPerms(namespace string, perms Permissions) {
 	if _, ok := w.NamespacePermissions[namespace]; ok {
 		for key, value := range perms {

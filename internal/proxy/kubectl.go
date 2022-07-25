@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/everettraven/rbac-proxy-poc/internal/handler"
 	"github.com/everettraven/rbac-proxy-poc/internal/rbac"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 	k8sproxy "k8s.io/apimachinery/pkg/util/proxy"
@@ -116,8 +117,8 @@ func (f *FilterServer) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	host := extractHost(req.Host)
 	if f.accept(req.Method, req.URL.Path, host) {
 		klog.V(0).Infof("Filter accepting %v %v %v", req.Method, req.URL.Path, host)
-		//TODO: Modifications to proxy logic can be done here - might be best to make it a function
-		direct := HandleRequest(rw, req, f.PermissionsWatcher)
+		// Intercept the request
+		direct := handler.HandleRequest(rw, req, f.PermissionsWatcher)
 		if direct {
 			f.delegate.ServeHTTP(rw, req)
 		}
