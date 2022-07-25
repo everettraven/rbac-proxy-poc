@@ -16,7 +16,7 @@ spec:
       ports:
         - containerPort: 9876
     - name: rbac-side
-      image: bpalmer/rbac-proxy-poc:v0.0.0
+      image: bpalmer/rbac-proxy-poc:latest
       ports:
         - containerPort: 8081
 ---
