@@ -1,9 +1,15 @@
-FROM golang:1.18
-
-COPY . /app
+FROM golang:1.18 as builder
 
 WORKDIR /app
 
-RUN go mod tidy
+COPY . ./
 
-ENTRYPOINT ["go", "run", "main.go"]
+RUN go mod download
+
+RUN go build -o /rbac-proxy-poc
+
+FROM gcr.io/distroless/base-debian10
+
+COPY --from=builder /rbac-proxy-poc /rbac-proxy-poc
+
+ENTRYPOINT ["/rbac-proxy-poc"]
