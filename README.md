@@ -41,3 +41,21 @@ PoC for using a sidecar proxy to scope a Descoped Operator using RBAC.
 **NOTE**: If you don't want to build the image yourself, for testing you can use the image `bpalmer/rbac-proxy-poc:latest` and skip steps 1, 3, and 4
 
 When following the above steps, the only permissions that the `ServiceAccount` used by the `rbac-sidecar` pod should have is the permissions to `get`, `list`, and `watch` pods in the `default` namespace and the cluster level permissions mentioned in the **Assumptions** section above.
+
+## Demo Steps
+1. `kind create cluster`
+2. `cat demo.yaml | bat -l yaml` (show the demo manifest)
+3. `kubectl apply -f demo.yaml`
+4. `watch -n 5 kubectl get pods` (wait for pod to finish starting up)
+5. `kubectl get pods -A` (show pods in all namespaces)
+6. `kubectl exec -it rbac-sidecar -- curl 127.0.0.1:8001/api/v1/pods | jq` (show that proxy filters only to the allowed namespace)
+6.1. `kubectl exec -it rbac-sidecar -- curl 127.0.0.1:8001/api/v1/pods | jq '.items | length'` (show that we only have 1 pod)
+7. `kubectl exec -it rbac-sidecar -- curl 127.0.0.1:8001/api/v1/namespaces/default/pods | jq` (show that we can get the pods in the default namespace)
+8. `kubectl exec -it rbac-sidecar -- curl 127.0.0.1:8001/api/v1/namespaces/kube-system/pods | jq` (show that we can NOT get the pods in the kube-system namespace)
+9. `kubectl exec -it rbac-sidecar -- curl 127.0.0.1:8001/apis/batch/v1/jobs | jq` (show that we get an empty list when we don't have permissions on the resource anywhere)
+10. `kubectl exec -it rbac-sidecar -- curl 127.0.0.1:8001/apis/batch/v1/namespaces/default/jobs | jq` (show that we get a forbidden since we don't have permissions)
+11. `kubectl exec -it rbac-sidecar -- curl 127.0.0.1:8001/apis/batch/v1/namespaces/default/jobs/job-name | jq` (show forbidden)
+12. `kubectl exec -it rbac-sidecar -- curl 127.0.0.1:8001/apis/batch/v1/jobs/job-name | jq` (show forbidden)
+
+## Demo GIF
+![demo gif](proxy-poc-demo.gif)
