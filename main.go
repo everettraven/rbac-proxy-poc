@@ -1,14 +1,15 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"net"
 	"os"
-	"time"
 
 	"github.com/everettraven/rbac-proxy-poc/internal/proxy"
-	"github.com/everettraven/rbac-proxy-poc/internal/rbac"
+	"github.com/everettraven/rbac-proxy-poc/pkg/scoped"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
@@ -27,48 +28,66 @@ const (
 func main() {
 	fmt.Println("RBAC Proxy!")
 
-	err := RunProxy()
+	fmt.Println("Getting Pods!")
+	cli := dynamic.NewForConfigOrDie(config.GetConfigOrDie())
+	gvr := corev1.SchemeGroupVersion.WithResource("pods")
+	fmt.Println("GVR --> ", gvr)
+	lw := scoped.NewScopedListerWatcher(cli, gvr)
+	pods, err := lw.List(metav1.ListOptions{})
 	if err != nil {
-		fmt.Println("ERROR -- ", err)
+		fmt.Println("ERROR --> ", err)
+		os.Exit(1)
 	}
+
+	fmt.Println("Got some Pods!")
+	ulpods := pods.(*unstructured.UnstructuredList)
+
+	for _, pod := range ulpods.Items {
+		fmt.Println("Got Pod --> ", pod.GetName())
+	}
+
+	// err := RunProxy()
+	// if err != nil {
+	// 	fmt.Println("ERROR -- ", err)
+	// }
 }
 
-func RunProxy() error {
-	// Create an informer
-	cfg := config.GetConfigOrDie()
-	ctx := context.TODO()
-	defer ctx.Done()
+// func RunProxy() error {
+// 	// Create an informer
+// 	cfg := config.GetConfigOrDie()
+// 	ctx := context.TODO()
+// 	defer ctx.Done()
 
-	watcher := rbac.NewRBACWatcher("rbac-sa")
-	watcher.Initialize(ctx, cfg)
+// 	watcher := rbac.NewRBACWatcher("rbac-sa")
+// 	watcher.Initialize(ctx, cfg)
 
-	go watcher.Start(ctx)
+// 	go watcher.Start(ctx)
 
-	filter := &proxy.FilterServer{
-		AcceptPaths:        proxy.MakeRegexpArrayOrDie(acceptPaths),
-		RejectPaths:        proxy.MakeRegexpArrayOrDie(rejectPaths),
-		AcceptHosts:        proxy.MakeRegexpArrayOrDie(acceptHosts),
-		RejectMethods:      proxy.MakeRegexpArrayOrDie(rejectMethods),
-		PermissionsWatcher: watcher,
-	}
+// 	filter := &proxy.FilterServer{
+// 		AcceptPaths:        proxy.MakeRegexpArrayOrDie(acceptPaths),
+// 		RejectPaths:        proxy.MakeRegexpArrayOrDie(rejectPaths),
+// 		AcceptHosts:        proxy.MakeRegexpArrayOrDie(acceptHosts),
+// 		RejectMethods:      proxy.MakeRegexpArrayOrDie(rejectMethods),
+// 		PermissionsWatcher: watcher,
+// 	}
 
-	keepalive, _ := time.ParseDuration("500ms")
-	appendServerPath := false
-	server, err := proxy.NewServer(staticDir, apiPrefix, staticPrefix, filter, cfg, keepalive, appendServerPath)
+// 	keepalive, _ := time.ParseDuration("500ms")
+// 	appendServerPath := false
+// 	server, err := proxy.NewServer(staticDir, apiPrefix, staticPrefix, filter, cfg, keepalive, appendServerPath)
 
-	if err != nil {
-		return err
-	}
+// 	if err != nil {
+// 		return err
+// 	}
 
-	var l net.Listener
+// 	var l net.Listener
 
-	l, err = server.Listen(address, port)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(os.Stdout, "Starting to serve on %s\n", l.Addr().String())
-	return server.ServeOnListener(l)
-}
+// 	l, err = server.Listen(address, port)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	fmt.Fprintf(os.Stdout, "Starting to serve on %s\n", l.Addr().String())
+// 	return server.ServeOnListener(l)
+// }
 
 /*
 	Notes on the RBAC Proxy:
