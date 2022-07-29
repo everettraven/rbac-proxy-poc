@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ssar-allowed-watch
+  namespace: default
+spec:
+  containers:
+    - name: ssar-allowed
+      image: mhausenblas/simpleservice:0.5.0
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ssar-denied-watch
+  namespace: kube-system
+spec:
+  containers:
+  - name: ssar-denied
+    image: mhausenblas/simpleservice:0.5.0

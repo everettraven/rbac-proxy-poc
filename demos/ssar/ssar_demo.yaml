@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ssar-demo-pod
+spec:
+  serviceAccountName: ssar-demo
+  containers:
+    - name: ssar-lister-test
+      image: bpalmer/rbac-proxy-poc:ssar
