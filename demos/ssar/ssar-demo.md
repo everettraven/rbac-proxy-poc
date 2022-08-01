@@ -99,4 +99,4 @@ MODIFIED - `ssar-allowed-watch` in namespace `default`
 ```
 
 ## Demo GIF
-TODO: Create and add the GIF here
+![demo gif](proxy-ssar-demo.gif)
